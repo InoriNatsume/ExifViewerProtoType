@@ -13,6 +13,7 @@
     h1 { text-align: center; margin-bottom: 10px; }
     .top-bar { display: grid; grid-template-columns: 2fr 1.2fr; gap: 16px; align-items: start; }
     .upload-box { border: 2px dashed #cdd4e0; padding: 20px; text-align: center; border-radius: 12px; background: #fff; cursor: pointer; }
+    .upload-box.dragover { border-color: #304ffe; background: #f1f4ff; }
     .upload-box:hover { border-color: #94a8c5; }
     .preview { margin-top: 12px; text-align: center; }
     .preview img { max-width: 100%; max-height: 320px; display: none; border: 1px solid #e3e6ed; border-radius: 8px; }
@@ -89,7 +90,7 @@
   <div class="container">
     <h1>EXIF 뷰어 (표준/스텔스)</h1>
     <div class="top-bar">
-      <div class="upload-box" onclick="document.getElementById('fileInput').click()">
+      <div class="upload-box" id="upload-box" onclick="document.getElementById('fileInput').click()">
         <p>이미지 파일을 선택하거나 드래그하세요.</p>
         <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp" style="display:none" />
         <div class="preview">

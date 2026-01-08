@@ -10,6 +10,7 @@ import { extractComfyPayloadFromPngText } from '../features/comfy/core/extract.j
 
 export function initViewer() {
   const fileInput = document.getElementById('fileInput');
+  const uploadBox = document.getElementById('upload-box');
   const preview = document.getElementById('preview');
   const fileMeta = document.getElementById('file-meta');
   const tabs = document.querySelectorAll('.tab-btn');
@@ -23,6 +24,8 @@ export function initViewer() {
   const miniSampleEl = document.getElementById('mini-sample');
   const miniSizeEl = document.getElementById('mini-size');
 
+  let lastMeta = null;
+  let lastModel = null;
   let currentData = {
     standardObj: null,
     stealthObj: null,
@@ -30,29 +33,6 @@ export function initViewer() {
     merged: null,
   };
   let currentTab = 'normalized';
-  let currentSource = 'standard';
-  let lastMeta = null;
-  let lastModel = null;
-
-  function renderAll() {
-    const sourceObj = currentSource === 'standard' ? currentData.standardObj : currentData.stealthObj;
-    const merged = sourceObj
-      ? pickMergedMeta(sourceObj, currentSource === 'stealth' ? JSON.stringify(sourceObj) : null)
-      : null;
-    const normalized = merged ? normalizeMetadata(merged) : { vendor: 'unknown', normalized: null };
-    currentData.normalized = normalized;
-    currentData.merged = merged;
-
-    renderSections(sectionsEl, normalized.normalized);
-    renderMiniMeta(normalized.normalized, miniSampleEl, miniSizeEl);
-    renderKeyExplorer(keyExplorerEl, sourceObj);
-    if (sourceObj) {
-      const displayObj = normalizeRawForDisplay(sourceObj);
-      rawSelectedEl.textContent = prettyJson(displayObj);
-    } else {
-      rawSelectedEl.textContent = `${currentSource === 'standard' ? '표준' : '스텔스'} EXIF 없음`;
-    }
-  }
 
   tabs.forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -66,13 +46,13 @@ export function initViewer() {
   });
 
   btnSave.addEventListener('click', () => {
-    const sourceObj = currentSource === 'standard' ? currentData.standardObj : currentData.stealthObj;
+    const sourceObj = currentData.standardObj || currentData.stealthObj;
     if (currentTab === 'normalized' && currentData.normalized) {
-      saveJson(`normalized_${currentSource}.json`, currentData.normalized);
+      saveJson('normalized.json', currentData.normalized);
     } else if (currentTab === 'raw' && sourceObj) {
-      saveJson(`${currentSource}_exif.json`, sourceObj);
+      saveJson('exif.json', sourceObj);
     } else if (currentTab === 'keys' && sourceObj) {
-      saveJson(`keys_${currentSource}.json`, sourceObj);
+      saveJson('keys.json', sourceObj);
     }
   });
 
@@ -90,6 +70,25 @@ export function initViewer() {
   fileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    await handleFile(file);
+  });
+
+  uploadBox?.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadBox.classList.add('dragover');
+  });
+  uploadBox?.addEventListener('dragleave', () => {
+    uploadBox.classList.remove('dragover');
+  });
+  uploadBox?.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    uploadBox.classList.remove('dragover');
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    await handleFile(file);
+  });
+
+  async function handleFile(file) {
     const url = URL.createObjectURL(file);
     preview.src = url;
     preview.style.display = 'block';
@@ -101,25 +100,32 @@ export function initViewer() {
     if (!meta) return;
     lastMeta = meta;
 
-    currentData.standardObj = meta.standardExif;
-
     const stealthStr = await parseStealthExif(meta.imageData);
     const stealthObj = stealthStr ? tryParseJson(stealthStr) : null;
-    currentData.stealthObj = stealthObj;
 
     const modelResult = detectModelFromMeta(meta);
     lastModel = modelResult;
     renderModelBadge(badgeModel, modelResult);
     updateViewerButtons(btnOpenComfy, modelResult);
 
-    const hasNAIstealth = isNovelAI(stealthObj);
-    const hasNAIstandard = isNovelAI(meta.standardExif);
-    if (hasNAIstealth) currentSource = 'stealth';
-    else if (hasNAIstandard) currentSource = 'standard';
-    else if (meta.standardExif) currentSource = 'standard';
-    else if (stealthObj) currentSource = 'stealth';
-    renderAll();
-  });
+    currentData.standardObj = meta.standardExif;
+    currentData.stealthObj = stealthObj;
+    const merged = pickMergedMeta(meta.standardExif, stealthObj ? JSON.stringify(stealthObj) : null);
+    const normalized = merged ? normalizeMetadata(merged) : { vendor: 'unknown', normalized: null };
+    currentData.normalized = normalized;
+    currentData.merged = merged;
+
+    renderSections(sectionsEl, normalized.normalized);
+    renderMiniMeta(normalized.normalized, miniSampleEl, miniSizeEl);
+    renderKeyExplorer(keyExplorerEl, meta.standardExif || stealthObj);
+
+    if (meta.standardExif || stealthObj) {
+      const displayObj = normalizeRawForDisplay(meta.standardExif || stealthObj);
+      rawSelectedEl.textContent = prettyJson(displayObj);
+    } else {
+      rawSelectedEl.textContent = 'EXIF 없음';
+    }
+  }
 }
 
 function renderModelBadge(el, result) {
@@ -146,13 +152,6 @@ function setButtonState(btn, enabled) {
   if (!btn) return;
   btn.disabled = !enabled;
   btn.classList.toggle('disabled', !enabled);
-}
-
-function isNovelAI(obj) {
-  if (!obj) return false;
-  const software = obj.Software || obj.software || '';
-  const source = obj.Source || obj.source || '';
-  return /novelai/i.test(software) || /novelai/i.test(source);
 }
 
 function normalizeRawForDisplay(obj, depth = 0, maxDepth = 4) {
