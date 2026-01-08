@@ -1,4 +1,4 @@
-// 정규화된 메타 → UI 섹션 구조 생성
+// 정규화된 메타 데이터를 UI 섹션으로 변환
 export function buildSections(meta) {
   if (!meta) return [];
   const sections = [];
@@ -13,7 +13,6 @@ export function buildSections(meta) {
     items: [{ label: 'Negative', value: meta.negative_prompt || '' }],
   });
 
-  // 캐릭터 프롬프트/네거티브를 순서대로(프롬→네거) 나열
   const pairs = Math.max(
     meta.char_prompts ? meta.char_prompts.length : 0,
     meta.char_negative_prompts ? meta.char_negative_prompts.length : 0

@@ -1,13 +1,13 @@
-// UI 엔트리: DOM 바인딩과 core 호출만 담당
-import { parseStandardExif } from '../core/extract/standard-exif.js';
 import { parseStealthExif } from '../core/extract/stealth-exif.js';
 import { normalizeMetadata } from '../core/parse/normalize.js';
 import { buildSections } from '../core/format/view-model.js';
 import { prettyJson } from '../core/format/pretty-json.js';
 import { saveJson } from '../features/download/save-json.js';
-import { extractKeyPaths } from '../core/format/key-explorer.js';
+import { buildKeyTree } from '../core/format/key-explorer.js';
+import { readImageMeta } from '../core/image/read-image-meta.js';
+import { detectModelFromMeta } from '../core/detect/model.js';
+import { extractComfyPayloadFromPngText } from '../features/comfy/core/extract.js';
 
-// 간단한 초기화 함수 (image_tool.html에서 호출)
 export function initViewer() {
   const fileInput = document.getElementById('fileInput');
   const preview = document.getElementById('preview');
@@ -19,8 +19,11 @@ export function initViewer() {
   const keyExplorerEl = document.getElementById('key-explorer');
   const badgeStd = document.getElementById('badge-std');
   const badgeStealth = document.getElementById('badge-stealth');
+  const badgeModel = document.getElementById('badge-model');
   const badgeVendor = document.getElementById('badge-vendor');
   const btnSave = document.getElementById('btn-save-json');
+  const btnOpenNai = document.getElementById('btn-open-nai');
+  const btnOpenComfy = document.getElementById('btn-open-comfy');
   const miniSampleEl = document.getElementById('mini-sample');
   const miniSizeEl = document.getElementById('mini-size');
   const srcStdBtn = document.getElementById('src-standard');
@@ -33,7 +36,9 @@ export function initViewer() {
     merged: null,
   };
   let currentTab = 'normalized';
-  let currentSource = 'standard'; // 'standard' | 'stealth'
+  let currentSource = 'standard';
+  let lastMeta = null;
+  let lastModel = null;
 
   function renderAll() {
     const sourceObj = currentSource === 'standard' ? currentData.standardObj : currentData.stealthObj;
@@ -60,48 +65,6 @@ export function initViewer() {
   function markSourceButtons() {
     srcStdBtn.classList.toggle('active', currentSource === 'standard');
     srcStealthBtn.classList.toggle('active', currentSource === 'stealth');
-  }
-
-  function renderVendorBadge(el, obj) {
-    if (!obj) {
-      el.textContent = '';
-      el.style.display = 'none';
-      return;
-    }
-    const software = obj.Software || obj.software || '';
-    const source = obj.Source || obj.source || '';
-    const isNAI = /novelai/i.test(software) || /novelai/i.test(source);
-    if (!isNAI) {
-      el.textContent = '';
-      el.style.display = 'none';
-      return;
-    }
-    el.style.display = 'inline-block';
-    el.textContent = source ? `NovelAI (${source})` : 'NovelAI';
-  }
-
-  function isNovelAI(obj) {
-    if (!obj) return false;
-    const software = obj.Software || obj.software || '';
-    const source = obj.Source || obj.source || '';
-    return /novelai/i.test(software) || /novelai/i.test(source);
-  }
-
-  function normalizeRawForDisplay(obj, depth = 0, maxDepth = 4) {
-    if (!obj || typeof obj !== 'object' || depth > maxDepth) return obj;
-    if (Array.isArray(obj)) {
-      return obj.map((v) => normalizeRawForDisplay(v, depth + 1, maxDepth));
-    }
-    const out = {};
-    for (const [k, v] of Object.entries(obj)) {
-      if (typeof v === 'string') {
-        const parsed = tryParseJson(v);
-        out[k] = parsed && depth < maxDepth ? normalizeRawForDisplay(parsed, depth + 1, maxDepth) : v;
-      } else {
-        out[k] = normalizeRawForDisplay(v, depth + 1, maxDepth);
-      }
-    }
-    return out;
   }
 
   tabs.forEach((btn) => {
@@ -137,6 +100,22 @@ export function initViewer() {
     }
   });
 
+  btnOpenNai?.addEventListener('click', () => {
+    if (!lastModel || lastModel.kind !== 'nai') return;
+    document.querySelector('[data-tab="normalized"]')?.click();
+  });
+
+  btnOpenComfy?.addEventListener('click', () => {
+    if (!lastMeta || !lastModel || lastModel.kind !== 'comfy') return;
+    const payload = extractComfyPayloadFromPngText(lastMeta.pngText);
+    if (!payload.workflow && !payload.prompt) {
+      alert('ComfyUI 메타데이터가 없습니다.');
+      return;
+    }
+    sessionStorage.setItem('comfyPayload', JSON.stringify({ ...payload, source: 'png' }));
+    window.location.href = './comfy_viewer.html';
+  });
+
   fileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -145,48 +124,112 @@ export function initViewer() {
     preview.style.display = 'block';
     fileMeta.textContent = `파일: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
 
-    // 캔버스 준비
-    const img = new Image();
-    img.onload = async () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      ctx.drawImage(img, 0, 0);
-      const imageData = ctx.getImageData(0, 0, img.width, img.height);
+    badgeStd.textContent = '표준 EXIF 확인 중...';
+    badgeStealth.textContent = '스텔스 확인 중...';
+    badgeModel.textContent = '모델 판정 중...';
 
-      badgeStd.textContent = '로딩 중...';
-      badgeStealth.textContent = '로딩 중...';
+    const meta = await readImageMeta(file);
+    if (!meta) return;
+    lastMeta = meta;
 
-      // 표준 EXIF
-      const std = await parseStandardExif(file);
-      currentData.standardObj = std;
-      badgeStd.textContent = std ? '표준 EXIF OK' : '표준 없음';
+    currentData.standardObj = meta.standardExif;
+    badgeStd.textContent = meta.standardExif ? '표준 EXIF OK' : '표준 EXIF 미검출';
 
-      // 스텔스 EXIF
-      const stealthStr = await parseStealthExif(imageData);
-      const stealthObj = stealthStr ? tryParseJson(stealthStr) : null;
-      currentData.stealthObj = stealthObj;
-      badgeStealth.textContent = stealthObj ? '스텔스 OK' : '스텔스 없음';
+    const stealthStr = await parseStealthExif(meta.imageData);
+    const stealthObj = stealthStr ? tryParseJson(stealthStr) : null;
+    currentData.stealthObj = stealthObj;
+    badgeStealth.textContent = stealthObj ? '스텔스 OK' : '스텔스 미검출';
 
-      // 기본 소스 선택 (NovelAI가 보이면 스텔스 우선)
-      const hasNAIstealth = isNovelAI(stealthObj);
-      const hasNAIstandard = isNovelAI(std);
-      if (hasNAIstealth) currentSource = 'stealth';
-      else if (currentData.standardObj) currentSource = 'standard';
-      else if (currentData.stealthObj) currentSource = 'stealth';
-      else if (hasNAIstandard) currentSource = 'standard';
-      markSourceButtons();
-      renderAll();
-    };
-    img.src = url;
+    const modelResult = detectModelFromMeta(meta);
+    lastModel = modelResult;
+    renderModelBadge(badgeModel, modelResult);
+    updateViewerButtons(btnOpenNai, btnOpenComfy, modelResult);
+
+    const hasNAIstealth = isNovelAI(stealthObj);
+    const hasNAIstandard = isNovelAI(meta.standardExif);
+    if (hasNAIstealth) currentSource = 'stealth';
+    else if (hasNAIstandard) currentSource = 'standard';
+    else if (meta.standardExif) currentSource = 'standard';
+    else if (stealthObj) currentSource = 'stealth';
+    markSourceButtons();
+    renderAll();
   });
+}
+
+function renderVendorBadge(el, obj) {
+  if (!obj) {
+    el.textContent = '';
+    el.style.display = 'none';
+    return;
+  }
+  const software = obj.Software || obj.software || '';
+  const source = obj.Source || obj.source || '';
+  const isNAI = /novelai/i.test(software) || /novelai/i.test(source);
+  if (!isNAI) {
+    el.textContent = '';
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = 'inline-block';
+  el.textContent = source ? `NovelAI (${source})` : 'NovelAI';
+}
+
+function renderModelBadge(el, result) {
+  if (!el) return;
+  if (!result) {
+    el.textContent = '';
+    return;
+  }
+  if (result.kind === 'nai') {
+    el.textContent = '판정: NovelAI';
+  } else if (result.kind === 'comfy') {
+    el.textContent = '판정: ComfyUI';
+  } else {
+    el.textContent = '판정: 기타/없음';
+  }
+}
+
+function updateViewerButtons(btnNai, btnComfy, model) {
+  const canNai = model && model.kind === 'nai';
+  const canComfy = model && model.kind === 'comfy';
+  setButtonState(btnNai, canNai);
+  setButtonState(btnComfy, canComfy);
+}
+
+function setButtonState(btn, enabled) {
+  if (!btn) return;
+  btn.disabled = !enabled;
+  btn.classList.toggle('disabled', !enabled);
+}
+
+function isNovelAI(obj) {
+  if (!obj) return false;
+  const software = obj.Software || obj.software || '';
+  const source = obj.Source || obj.source || '';
+  return /novelai/i.test(software) || /novelai/i.test(source);
+}
+
+function normalizeRawForDisplay(obj, depth = 0, maxDepth = 4) {
+  if (!obj || typeof obj !== 'object' || depth > maxDepth) return obj;
+  if (Array.isArray(obj)) {
+    return obj.map((v) => normalizeRawForDisplay(v, depth + 1, maxDepth));
+  }
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (typeof v === 'string') {
+      const parsed = tryParseJson(v);
+      out[k] = parsed && depth < maxDepth ? normalizeRawForDisplay(parsed, depth + 1, maxDepth) : v;
+    } else {
+      out[k] = normalizeRawForDisplay(v, depth + 1, maxDepth);
+    }
+  }
+  return out;
 }
 
 function renderSections(root, meta) {
   root.innerHTML = '';
   if (!meta) {
-    root.textContent = '정규화된 데이터 없음';
+    root.textContent = '정규화된 값이 없습니다.';
     return;
   }
   const sections = buildSections(meta);
@@ -218,7 +261,6 @@ function tryParseJson(str) {
   try {
     return JSON.parse(str);
   } catch (_) {
-    // 이스케이프된 문자열을 한 번 더 풀어보기
     try {
       const unescaped = str.replace(/\\"/g, '"');
       return JSON.parse(unescaped);
@@ -230,7 +272,6 @@ function tryParseJson(str) {
 
 function extractJsonFromStandard(std) {
   if (!std || typeof std !== 'object') return null;
-  // 값 중 JSON string 추정치를 탐색 (Comment, Description 등)
   for (const val of Object.values(std)) {
     if (typeof val === 'string' && val.includes('{') && val.includes('}')) {
       const parsed = tryParseJson(val);
@@ -257,37 +298,203 @@ function pickMergedMeta(std, stealthString) {
 function renderKeyExplorer(root, obj) {
   root.innerHTML = '';
   if (!obj) {
-    root.textContent = '탐색 가능한 데이터 없음';
+    root.textContent = '탐색 가능한 데이터가 없습니다.';
     return;
   }
-  const paths = extractKeyPaths(obj);
-  const table = document.createElement('table');
-  table.className = 'key-table';
-  const thead = document.createElement('thead');
-  const hr = document.createElement('tr');
-  ['Path', 'Type', 'Sample'].forEach((h) => {
-    const th = document.createElement('th');
-    th.textContent = h;
-    hr.appendChild(th);
-  });
-  thead.appendChild(hr);
-  table.appendChild(thead);
-  const tbody = document.createElement('tbody');
-  paths.forEach((p) => {
+
+  const tree = buildKeyTree(obj, { maxNodes: 2500, maxDepth: 12 });
+  if (!tree) {
+    root.textContent = '탐색 가능한 데이터가 없습니다.';
+    return;
+  }
+
+  const layout = document.createElement('div');
+  layout.className = 'key-explorer-layout';
+  const treePane = document.createElement('div');
+  treePane.className = 'key-tree';
+  const detailPane = document.createElement('div');
+  detailPane.className = 'key-detail';
+  const tabsBar = document.createElement('div');
+  tabsBar.className = 'key-tabs';
+  const contents = document.createElement('div');
+  contents.className = 'key-tab-contents';
+  const emptyState = document.createElement('div');
+  emptyState.className = 'key-empty';
+  emptyState.textContent = '왼쪽에서 항목을 선택하면 상세 탭이 열립니다.';
+
+  detailPane.appendChild(tabsBar);
+  detailPane.appendChild(contents);
+  detailPane.appendChild(emptyState);
+  layout.appendChild(treePane);
+  layout.appendChild(detailPane);
+  root.appendChild(layout);
+
+  const openTabs = new Map();
+  let activeId = null;
+
+  function setActive(id) {
+    activeId = id;
+    openTabs.forEach((tab, key) => {
+      tab.btn.classList.toggle('active', key === id);
+      tab.content.classList.toggle('active', key === id);
+    });
+    emptyState.style.display = openTabs.size > 0 ? 'none' : 'block';
+  }
+
+  function closeTab(id) {
+    const tab = openTabs.get(id);
+    if (!tab) return;
+    tab.tab.remove();
+    tab.content.remove();
+    openTabs.delete(id);
+    if (activeId === id) {
+      const next = openTabs.keys().next().value;
+      if (next) setActive(next);
+      else emptyState.style.display = 'block';
+    }
+  }
+
+  function openTab(node) {
+    const id = node.path || '(root)';
+    if (!openTabs.has(id)) {
+      const tab = document.createElement('div');
+      tab.className = 'key-tab';
+      const btn = document.createElement('button');
+      btn.className = 'key-tab-btn';
+      btn.textContent = id;
+      const close = document.createElement('button');
+      close.className = 'key-tab-close';
+      close.textContent = 'x';
+      tab.appendChild(btn);
+      tab.appendChild(close);
+      tabsBar.appendChild(tab);
+
+      const content = document.createElement('div');
+      content.className = 'key-tab-content';
+      content.dataset.tabId = id;
+      content.appendChild(buildDetail(node));
+      contents.appendChild(content);
+
+      btn.addEventListener('click', () => setActive(id));
+      close.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeTab(id);
+      });
+
+      openTabs.set(id, { tab, btn, close, content });
+    }
+    setActive(id);
+  }
+
+  function buildDetail(node) {
+    const wrap = document.createElement('div');
+    wrap.className = 'key-detail-body';
+    const metaTable = document.createElement('table');
+    metaTable.className = 'key-detail-table';
+    metaTable.appendChild(makeDetailRow('Path', node.path));
+    metaTable.appendChild(makeDetailRow('Type', node.type));
+    metaTable.appendChild(makeDetailRow('Sample', node.sample));
+
+    const value = formatValue(node.value);
+    if (value !== '') {
+      metaTable.appendChild(makeDetailRow('Value', value, true));
+    }
+
+    wrap.appendChild(metaTable);
+
+    if (node.children && node.children.length > 0) {
+      const childrenTable = document.createElement('table');
+      childrenTable.className = 'key-children-table';
+      const head = document.createElement('tr');
+      ['Key', 'Type', 'Sample'].forEach((h) => {
+        const th = document.createElement('th');
+        th.textContent = h;
+        head.appendChild(th);
+      });
+      const thead = document.createElement('thead');
+      thead.appendChild(head);
+      childrenTable.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      node.children.forEach((child) => {
+        const tr = document.createElement('tr');
+        tr.className = 'key-child-row';
+        const tdKey = document.createElement('td');
+        tdKey.textContent = child.key;
+        const tdType = document.createElement('td');
+        tdType.textContent = child.type;
+        const tdSample = document.createElement('td');
+        tdSample.textContent = child.sample;
+        tr.appendChild(tdKey);
+        tr.appendChild(tdType);
+        tr.appendChild(tdSample);
+        tr.addEventListener('click', () => openTab(child));
+        tbody.appendChild(tr);
+      });
+      childrenTable.appendChild(tbody);
+      wrap.appendChild(childrenTable);
+    }
+
+    return wrap;
+  }
+
+  function makeDetailRow(label, value, isPre = false) {
     const tr = document.createElement('tr');
-    const tdPath = document.createElement('td');
-    tdPath.textContent = p.path;
-    const tdType = document.createElement('td');
-    tdType.textContent = p.type;
-    const tdSample = document.createElement('td');
-    tdSample.textContent = p.sample;
-    tr.appendChild(tdPath);
-    tr.appendChild(tdType);
-    tr.appendChild(tdSample);
-    tbody.appendChild(tr);
-  });
-  table.appendChild(tbody);
-  root.appendChild(table);
+    const th = document.createElement('th');
+    th.textContent = label;
+    const td = document.createElement('td');
+    if (isPre) {
+      const pre = document.createElement('pre');
+      pre.textContent = value;
+      td.appendChild(pre);
+    } else {
+      td.textContent = value;
+    }
+    tr.appendChild(th);
+    tr.appendChild(td);
+    return tr;
+  }
+
+  function formatValue(value) {
+    if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'object') {
+      try {
+        return JSON.stringify(value, null, 2);
+      } catch (_) {
+        return String(value);
+      }
+    }
+    return String(value);
+  }
+
+  function renderNode(node, parent) {
+    if (!node) return;
+    const hasChildren = node.children && node.children.length > 0;
+    if (hasChildren) {
+      const details = document.createElement('details');
+      details.className = 'key-node';
+      if (node.path === '(root)') details.open = true;
+      const summary = document.createElement('summary');
+      summary.textContent = `${node.key} (${node.type})`;
+      summary.addEventListener('click', () => openTab(node));
+      details.appendChild(summary);
+      const childWrap = document.createElement('div');
+      childWrap.className = 'key-children';
+      node.children.forEach((child) => renderNode(child, childWrap));
+      details.appendChild(childWrap);
+      parent.appendChild(details);
+      return;
+    }
+    const item = document.createElement('div');
+    item.className = 'key-leaf';
+    item.textContent = `${node.key} (${node.type})`;
+    item.addEventListener('click', () => openTab(node));
+    parent.appendChild(item);
+  }
+
+  renderNode(tree, treePane);
 }
 
 function renderMiniMeta(meta, sampleEl, sizeEl) {

@@ -1,4 +1,4 @@
-// JSON 데이터를 파일로 저장하는 유틸 (브라우저)
+﻿// JSON ?곗씠?곕? ?뚯씪濡???ν븯???좏떥 (釉뚮씪?곗?)
 export function saveJson(filename, data) {
   const json = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
   const blob = new Blob([json], { type: 'application/json' });

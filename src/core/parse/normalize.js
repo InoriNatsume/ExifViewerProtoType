@@ -1,7 +1,7 @@
-import { parseNovelAI } from './schema/novelai-schema.js';
+﻿import { parseNovelAI } from './schema/novelai-schema.js';
 
-// 입력: raw 객체
-// 출력: { vendor, normalized, raw }
+// ?낅젰: raw 媛앹껜
+// 異쒕젰: { vendor, normalized, raw }
 export function normalizeMetadata(raw) {
   const nai = parseNovelAI(raw);
   if (nai) {

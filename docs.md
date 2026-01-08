@@ -1,77 +1,85 @@
-# ExifViewer 리팩터링 설계/동작 문서
+# ExifViewer 문서
 
 ## 0. 목표
-- GitHub Pages 환경에서 브라우저만으로 표준 EXIF + 스텔스 EXIF를 읽어 정규화 뷰/RAW/필드 탐색을 제공.
-- 추출·파싱·정규화 로직을 UI와 분리해 다른 JS 프로젝트에서도 재사용 가능하도록 ES 모듈화.
-- NovelAI 메타(JSON) 특성을 반영한 스키마/포맷터로 가독성 있는 뷰 제공.
-- 각 EXIF 결과를 JSON으로 다운로드 가능하게 유틸 제공.
+- GitHub Pages에서 브라우저만으로 EXIF + 스텔스 EXIF를 읽고 정규화/RAW/필드 탐색 제공
+- NAI/ComfyUI 판정을 공통 UI에서 수행하고, 전용 뷰로 분기
+- 모델 업데이트 대응을 위해 스키마를 분리하고 교체만으로 유지 가능하게 구성
 
-## 1. 비기능 요구
-- 브라우저 ES Module 로딩 기준(번들러 없이 동작), 외부 의존성은 CDN exifr(표준), CDN pako(stealth gzip) 사용.
-- 로직은 `src/core`, `src/features`에 격리, UI는 최소한의 DOM 제어만 담당.
-- 테스트는 브라우저 콘솔/샘플 파일로 수동 검증 가능하게 유지.
-
-## 2. 폴더 구조
+## 1. 프로젝트 구조(루트 기준)
 ```
 src/
   core/
-    extract/          # 추출
-      standard-exif.js
-      stealth-exif.js
-    parse/            # 정규화
+    detect/
+      model.js            # 공통 판정(NAI/Comfy/기타)
+    extract/
+      standard-exif.js    # 표준 EXIF
+      stealth-exif.js     # NAI 스텔스 추출(전용)
+      png-text.js         # PNG tEXt/iTXt/zTXt 파서(공통)
+    image/
+      read-image-meta.js  # 표준 EXIF + PNG 텍스트 + ImageData
+    parse/
       schema/
-        novelai-schema.js
-      normalize.js
-    format/           # 뷰 모델/포맷터
-      view-model.js
+        novelai-schema.js # NAI 스키마
+      normalize.js        # NAI 정규화
+    format/
+      view-model.js       # NAI 섹션 뷰 모델
       pretty-json.js
       key-explorer.js
   features/
     download/
       save-json.js
+    comfy/
+      core/
+        schema.js         # ComfyUI 스키마 로더
+        normalize.js      # 그래프 정규화
+        categories.js
+        resources.js
+        extract.js        # PNG 텍스트에서 prompt/workflow 추출
+      ui/
+        viewer.js         # ComfyUI 전용 뷰어
   ui/
-    viewer.js         # DOM 제어, 탭/토글/렌더
+    viewer.js             # 공통/NAI UI
 public/
-  image_tool.html     # 진입점 (ES module 로드)
-참조/
-  exif_example_novelai.json
+  image_tool.html         # 공통 UI
+  comfy_viewer.html       # ComfyUI 전용 UI
+  comfy/
+    official_comfyui_worflow.json
 ```
 
-## 3. 핵심 모듈
-- `standard-exif.js` : `parseStandardExif(file: Blob) -> Promise<object|null>`
-- `stealth-exif.js`  : `parseStealthExif(imageData: ImageData) -> Promise<string|null>` 등 비트 추출/디코딩 분리
-- `novelai-schema.js`: v4 이전/이후를 감지해 base_caption, char_captions, sampler/steps/scale/seed/size 등 정규화
-- `normalize.js`     : 공급자 감지 후 `{ vendor, normalized, raw }` 반환
-- `view-model.js`    : 정규화된 메타를 섹션 카드 데이터로 변환(프롬프트/네거티브/캐릭터별 프롬·네거, 샘플 설정, 크기/시드)
-- `pretty-json.js`   : 객체/문자열 JSON을 들여쓰기 문자열로 변환(문자열이면 파싱 시도)
-- `key-explorer.js`  : JSON 키 트리를 평탄화, 문자열에 내장된 JSON도 `(필드명)(json)...` 경로로 재귀 표시
-- `save-json.js`     : 브라우저에서 JSON 다운로드 헬퍼
-- `viewer.js`        : 파일 선택 → 추출(표준/스텔스) → 정규화 → 섹션/RAW/필드탐색 렌더 + 소스 토글/배지/다운로드
+## 2. 판정 및 분기 흐름
+1) 이미지 업로드 → `readImageMeta`
+   - 표준 EXIF
+   - PNG 텍스트(tEXt/iTXt/zTXt)
+   - ImageData(스텔스 추출용)
+2) 판정(`detectModelFromMeta`)
+   - PNG 텍스트에 ComfyUI prompt/workflow → ComfyUI
+   - 표준 EXIF Software/Source에 NovelAI → NAI
+   - 그 외 → 기타/없음
+3) 공통 UI에서 판정 배지 표시 + 전용 뷰 이동 버튼 활성화
+4) ComfyUI 버튼 클릭 시, PNG 메타데이터를 세션에 담아 전용 뷰로 전달
 
-## 4. 데이터 흐름
-1) 파일 선택 → 이미지 로드 → `canvas.getImageData`.
-2) `parseStandardExif(file)` 실행.
-3) `parseStealthExif(imageData)` 실행 후 JSON 파싱.
-4) 기본 소스 선택:
-   - Software/Source에 `NovelAI`가 있고 스텔스가 있으면 스텔스 우선.
-   - 그 외 표준 있으면 표준, 없으면 스텔스.
-5) 선택된 소스를 `normalizeMetadata`로 정규화 → `buildSections`로 카드 생성.
-6) RAW 탭은 선택된 소스 객체를 `normalizeRawForDisplay`로 문자열 JSON 내부까지 파싱 후 `prettyJson`으로 출력.
-7) 필드 탐색 탭은 `extractKeyPaths`로 계층 경로+샘플을 표로 표시.
-8) JSON 저장은 현재 탭/소스 기준으로 다운로드.
+## 3. NAI 전용 처리
+- 스텔스 EXIF는 NAI 전용이며 공통에서 처리하지 않음
+- 정규화는 `novelai-schema.js`에서 수행
 
-## 5. UI/UX 요약
-- 상단: 업로드/프리뷰, 상태 & 액션(표준/스텔스 배지, NovelAI 배지, 소스 토글, JSON 저장).
-- 미니 카드: 샘플 설정(샘플러 → 노이즈 스케줄 → 스텝 → CFG/Rescale → Request Type), 크기/시드(Width/Height/Seed/n_samples).
-- 탭: `정규화 뷰 | RAW | 필드 탐색`.
-- 정규화 뷰: 프롬프트, 네거티브, 캐릭터별 프롬/네거를 순차 카드로 표시. 샘플/크기 정보는 상단 미니 카드에 배치.
-- RAW: 선택한 소스 기준 JSON 구조를 들여쓰기 형태로 표시(문자열 내 JSON도 복원).
-- 필드 탐색: 모든 키 경로 + 타입 + 샘플, 문자열 JSON은 `(필드명)(json)...` 경로로 중첩 표시.
+## 4. ComfyUI 전용 처리
+- PNG 텍스트에서 `prompt`/`workflow`를 추출(`extract.js`)
+- 그래프 정규화는 `normalize.js`
+- 공식 스키마는 `public/comfy/official_comfyui_worflow.json`
 
-## 6. NovelAI 감지/표시
-- `Software` 또는 `Source`에 `NovelAI`가 포함되면 NovelAI 배지를 상태 영역에 표시(`NovelAI (Source값)`).
-- NovelAI 문자열이 감지되고 스텔스 EXIF가 존재하면 기본 소스는 스텔스로 선택.
+## 5. 로컬 실행
+- 로컬에서는 ES Module을 사용하므로 반드시 HTTP 서버로 열어야 함
+```
+cd C:\Projects\ExifViewer
+python -m http.server 8000
+```
+- 공통 UI: `http://localhost:8000/public/image_tool.html`
+- ComfyUI UI: `http://localhost:8000/public/comfy_viewer.html`
 
-## 7. 남은 작업/주의
-- CDN 로딩 실패 시(exifr/pako) 콘솔 경고로만 표시하므로, 네트워크 제한 환경에서는 수동 확인 필요.
-- 추가로 노출할 필드나 섹션 순서 변경이 필요하면 `view-model.js`를 수정하고, RAW/필드 탐색에서 키를 확인 후 매핑 확장.***
+## 6. GitHub Pages
+- Pages에서는 HTTP로 제공되므로 별도 서버 없이 정상 동작
+- 액션으로 `public/` + `src/`를 그대로 배포
+
+## 7. 스키마 업데이트 위치
+- NAI: `src/core/parse/schema/novelai-schema.js`
+- ComfyUI: `public/comfy/official_comfyui_worflow.json`

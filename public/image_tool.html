@@ -1,10 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EXIF 뷰어 (표준/스텔스)</title>
-  <!-- 외부 UMD 의존성: CDN 환경 (GitHub Pages 용) -->
+  <!-- 브라우저 환경에서 CDN 로드 (GitHub Pages용) -->
   <script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
   <style>
@@ -24,6 +24,9 @@
     .src-toggle { display: flex; gap: 8px; margin-top: 8px; }
     .src-btn { padding: 8px 12px; border: 1px solid #cdd4e0; background: #fff; border-radius: 8px; cursor: pointer; }
     .src-btn.active { background: #304ffe; color: #fff; border-color: #304ffe; }
+    .viewer-toggle { display: flex; gap: 8px; margin-top: 10px; }
+    .viewer-btn { padding: 8px 12px; border: 1px solid #cdd4e0; background: #fff; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .viewer-btn.disabled { opacity: 0.5; cursor: not-allowed; }
     .panel { background: #fff; border: 1px solid #dce2ed; border-radius: 12px; padding: 14px; }
     .panel h3 { margin: 6px 0 10px; font-size: 1rem; }
     .tabs { display: flex; gap: 8px; margin-top: 20px; }
@@ -50,10 +53,39 @@
     .key-table td:nth-child(1) { width: 35%; word-break: break-all; }
     .key-table td:nth-child(2) { width: 10%; }
     .key-table td:nth-child(3) { word-break: break-word; }
+    .key-explorer-layout { display: grid; grid-template-columns: minmax(220px, 320px) 1fr; gap: 12px; }
+    .key-tree { border: 1px solid #e1e6f0; border-radius: 10px; padding: 10px; background: #f9fbff; max-height: 420px; overflow: auto; }
+    .key-detail { border: 1px solid #e1e6f0; border-radius: 10px; padding: 10px; background: #fff; min-height: 320px; }
+    .key-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .key-tab { display: inline-flex; align-items: center; gap: 6px; background: #f3f6fb; border: 1px solid #d8e0ef; border-radius: 8px; padding: 4px 6px; }
+    .key-tab-btn { border: none; background: transparent; cursor: pointer; font-size: 0.88rem; color: #2a3345; }
+    .key-tab-btn.active { color: #304ffe; font-weight: 700; }
+    .key-tab-close { border: none; background: transparent; cursor: pointer; font-size: 0.85rem; color: #667; }
+    .key-tab-contents { margin-top: 10px; }
+    .key-tab-content { display: none; }
+    .key-tab-content.active { display: block; }
+    .key-empty { color: #667085; font-size: 0.92rem; margin-top: 12px; }
+    .key-node { margin: 4px 0; }
+    .key-node summary { cursor: pointer; font-weight: 600; color: #2a3345; }
+    .key-children { margin-left: 12px; border-left: 2px solid #eef2f8; padding-left: 8px; }
+    .key-leaf { margin: 4px 0; padding: 4px 6px; border-radius: 6px; cursor: pointer; color: #2a3345; }
+    .key-leaf:hover { background: #eef3ff; }
+    .key-detail-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+    .key-detail-table th, .key-detail-table td { border: 1px solid #e1e6f0; padding: 6px 8px; vertical-align: top; }
+    .key-detail-table th { width: 90px; background: #f3f6fb; text-align: left; }
+    .key-children-table { width: 100%; border-collapse: collapse; font-size: 0.93rem; }
+    .key-children-table th, .key-children-table td { border: 1px solid #e1e6f0; padding: 6px 8px; vertical-align: top; }
+    .key-children-table th { background: #f3f6fb; text-align: left; }
+    .key-child-row { cursor: pointer; }
+    .key-child-row:hover { background: #f7f9ff; }
     .mini-row { display: grid; grid-template-columns: 140px 1fr; gap: 6px; padding: 4px 0; }
     .mini-label { font-weight: 700; color: #4a5568; }
     .mini-value { background: #f7f9fc; border: 1px solid #e3e7f1; border-radius: 6px; padding: 6px 8px; }
     .mini-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; margin-top: 12px; }
+    @media (max-width: 980px) {
+      .key-explorer-layout { grid-template-columns: 1fr; }
+      .key-tree { max-height: 240px; }
+    }
   </style>
 </head>
 <body>
@@ -61,8 +93,8 @@
     <h1>EXIF 뷰어 (표준/스텔스)</h1>
     <div class="top-bar">
       <div class="upload-box" onclick="document.getElementById('fileInput').click()">
-        <p>PNG 파일을 선택하거나 드래그하세요.</p>
-        <input type="file" id="fileInput" accept="image/png" style="display:none" />
+        <p>이미지 파일을 선택하거나 드래그하세요.</p>
+        <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp" style="display:none" />
         <div class="preview">
           <img id="preview" alt="미리보기" />
           <div id="file-meta" class="meta"></div>
@@ -73,11 +105,16 @@
         <div class="badges">
           <span id="badge-std" class="badge none">표준 EXIF 미검출</span>
           <span id="badge-stealth" class="badge none">스텔스 미검출</span>
+          <span id="badge-model" class="badge">판정: 대기</span>
           <span id="badge-vendor" class="badge" style="display:none;"></span>
         </div>
         <div class="src-toggle">
           <button id="src-standard" class="src-btn active">표준 사용</button>
           <button id="src-stealth" class="src-btn">스텔스 사용</button>
+        </div>
+        <div class="viewer-toggle">
+          <button id="btn-open-nai" class="viewer-btn disabled" disabled>NAI 보기</button>
+          <button id="btn-open-comfy" class="viewer-btn disabled" disabled>ComfyUI 보기</button>
         </div>
         <div class="actions">
           <button id="btn-save-json" class="primary">JSON 저장</button>
@@ -103,13 +140,13 @@
     </div>
 
     <div id="tab-normalized" class="tab-content active">
-      <div id="section-view" class="section-grid">정규화된 데이터 없음</div>
+      <div id="section-view" class="section-grid">정규화된 값이 없습니다.</div>
     </div>
     <div id="tab-raw" class="tab-content">
       <div class="raw-area"><pre id="raw-selected">선택된 EXIF 없음</pre></div>
     </div>
     <div id="tab-keys" class="tab-content">
-      <div id="key-explorer">탐색 가능한 데이터 없음</div>
+      <div id="key-explorer">탐색 가능한 데이터가 없습니다.</div>
     </div>
   </div>
 
