@@ -23,7 +23,8 @@ jobs:
           cp -R public dist/public
           cp -R src dist/src
           cp index.html dist/index.html
-          cp docs.md dist/docs.md
+          if [ -f README.md ]; then cp README.md dist/README.md; fi
+          if [ -f docs.md ]; then cp docs.md dist/docs.md; fi
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
