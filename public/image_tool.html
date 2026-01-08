@@ -21,9 +21,6 @@
     .badge { padding: 6px 10px; border-radius: 10px; font-size: 0.9rem; border: 1px solid #d7deea; background: #fff; }
     .badge.ok { background: #e6f7ed; color: #0a7a33; border-color: #b6e2c2; }
     .badge.none { background: #fff3e0; color: #b26a00; border-color: #ffd8a8; }
-    .src-toggle { display: flex; gap: 8px; margin-top: 8px; }
-    .src-btn { padding: 8px 12px; border: 1px solid #cdd4e0; background: #fff; border-radius: 8px; cursor: pointer; }
-    .src-btn.active { background: #304ffe; color: #fff; border-color: #304ffe; }
     .viewer-toggle { display: flex; gap: 8px; margin-top: 10px; }
     .viewer-btn { padding: 8px 12px; border: 1px solid #cdd4e0; background: #fff; border-radius: 8px; cursor: pointer; font-weight: 600; }
     .viewer-btn.disabled { opacity: 0.5; cursor: not-allowed; }
@@ -103,17 +100,9 @@
       <div class="panel">
         <h3>상태 & 액션</h3>
         <div class="badges">
-          <span id="badge-std" class="badge none">표준 EXIF 미검출</span>
-          <span id="badge-stealth" class="badge none">스텔스 미검출</span>
           <span id="badge-model" class="badge">판정: 대기</span>
-          <span id="badge-vendor" class="badge" style="display:none;"></span>
-        </div>
-        <div class="src-toggle">
-          <button id="src-standard" class="src-btn active">표준 사용</button>
-          <button id="src-stealth" class="src-btn">스텔스 사용</button>
         </div>
         <div class="viewer-toggle">
-          <button id="btn-open-nai" class="viewer-btn disabled" disabled>NAI 보기</button>
           <button id="btn-open-comfy" class="viewer-btn disabled" disabled>ComfyUI 보기</button>
         </div>
         <div class="actions">

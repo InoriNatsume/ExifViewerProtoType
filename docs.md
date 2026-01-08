@@ -1,5 +1,8 @@
 # ExifViewer 문서
 
+
+https://inorinatsume.github.io/ExifViewerProtoType/
+
 ## 0. 목표
 - GitHub Pages에서 브라우저만으로 EXIF + 스텔스 EXIF를 읽고 정규화/RAW/필드 탐색 제공
 - NAI/ComfyUI 판정을 공통 UI에서 수행하고, 전용 뷰로 분기

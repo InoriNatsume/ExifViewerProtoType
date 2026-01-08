@@ -17,17 +17,11 @@ export function initViewer() {
   const sectionsEl = document.getElementById('section-view');
   const rawSelectedEl = document.getElementById('raw-selected');
   const keyExplorerEl = document.getElementById('key-explorer');
-  const badgeStd = document.getElementById('badge-std');
-  const badgeStealth = document.getElementById('badge-stealth');
   const badgeModel = document.getElementById('badge-model');
-  const badgeVendor = document.getElementById('badge-vendor');
   const btnSave = document.getElementById('btn-save-json');
-  const btnOpenNai = document.getElementById('btn-open-nai');
   const btnOpenComfy = document.getElementById('btn-open-comfy');
   const miniSampleEl = document.getElementById('mini-sample');
   const miniSizeEl = document.getElementById('mini-size');
-  const srcStdBtn = document.getElementById('src-standard');
-  const srcStealthBtn = document.getElementById('src-stealth');
 
   let currentData = {
     standardObj: null,
@@ -52,19 +46,12 @@ export function initViewer() {
     renderSections(sectionsEl, normalized.normalized);
     renderMiniMeta(normalized.normalized, miniSampleEl, miniSizeEl);
     renderKeyExplorer(keyExplorerEl, sourceObj);
-    renderVendorBadge(badgeVendor, sourceObj);
-
     if (sourceObj) {
       const displayObj = normalizeRawForDisplay(sourceObj);
       rawSelectedEl.textContent = prettyJson(displayObj);
     } else {
       rawSelectedEl.textContent = `${currentSource === 'standard' ? '표준' : '스텔스'} EXIF 없음`;
     }
-  }
-
-  function markSourceButtons() {
-    srcStdBtn.classList.toggle('active', currentSource === 'standard');
-    srcStealthBtn.classList.toggle('active', currentSource === 'stealth');
   }
 
   tabs.forEach((btn) => {
@@ -78,17 +65,6 @@ export function initViewer() {
     });
   });
 
-  srcStdBtn.addEventListener('click', () => {
-    currentSource = 'standard';
-    renderAll();
-    markSourceButtons();
-  });
-  srcStealthBtn.addEventListener('click', () => {
-    currentSource = 'stealth';
-    renderAll();
-    markSourceButtons();
-  });
-
   btnSave.addEventListener('click', () => {
     const sourceObj = currentSource === 'standard' ? currentData.standardObj : currentData.stealthObj;
     if (currentTab === 'normalized' && currentData.normalized) {
@@ -98,11 +74,6 @@ export function initViewer() {
     } else if (currentTab === 'keys' && sourceObj) {
       saveJson(`keys_${currentSource}.json`, sourceObj);
     }
-  });
-
-  btnOpenNai?.addEventListener('click', () => {
-    if (!lastModel || lastModel.kind !== 'nai') return;
-    document.querySelector('[data-tab="normalized"]')?.click();
   });
 
   btnOpenComfy?.addEventListener('click', () => {
@@ -124,8 +95,6 @@ export function initViewer() {
     preview.style.display = 'block';
     fileMeta.textContent = `파일: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
 
-    badgeStd.textContent = '표준 EXIF 확인 중...';
-    badgeStealth.textContent = '스텔스 확인 중...';
     badgeModel.textContent = '모델 판정 중...';
 
     const meta = await readImageMeta(file);
@@ -133,17 +102,15 @@ export function initViewer() {
     lastMeta = meta;
 
     currentData.standardObj = meta.standardExif;
-    badgeStd.textContent = meta.standardExif ? '표준 EXIF OK' : '표준 EXIF 미검출';
 
     const stealthStr = await parseStealthExif(meta.imageData);
     const stealthObj = stealthStr ? tryParseJson(stealthStr) : null;
     currentData.stealthObj = stealthObj;
-    badgeStealth.textContent = stealthObj ? '스텔스 OK' : '스텔스 미검출';
 
     const modelResult = detectModelFromMeta(meta);
     lastModel = modelResult;
     renderModelBadge(badgeModel, modelResult);
-    updateViewerButtons(btnOpenNai, btnOpenComfy, modelResult);
+    updateViewerButtons(btnOpenComfy, modelResult);
 
     const hasNAIstealth = isNovelAI(stealthObj);
     const hasNAIstandard = isNovelAI(meta.standardExif);
@@ -151,27 +118,8 @@ export function initViewer() {
     else if (hasNAIstandard) currentSource = 'standard';
     else if (meta.standardExif) currentSource = 'standard';
     else if (stealthObj) currentSource = 'stealth';
-    markSourceButtons();
     renderAll();
   });
-}
-
-function renderVendorBadge(el, obj) {
-  if (!obj) {
-    el.textContent = '';
-    el.style.display = 'none';
-    return;
-  }
-  const software = obj.Software || obj.software || '';
-  const source = obj.Source || obj.source || '';
-  const isNAI = /novelai/i.test(software) || /novelai/i.test(source);
-  if (!isNAI) {
-    el.textContent = '';
-    el.style.display = 'none';
-    return;
-  }
-  el.style.display = 'inline-block';
-  el.textContent = source ? `NovelAI (${source})` : 'NovelAI';
 }
 
 function renderModelBadge(el, result) {
@@ -189,10 +137,8 @@ function renderModelBadge(el, result) {
   }
 }
 
-function updateViewerButtons(btnNai, btnComfy, model) {
-  const canNai = model && model.kind === 'nai';
+function updateViewerButtons(btnComfy, model) {
   const canComfy = model && model.kind === 'comfy';
-  setButtonState(btnNai, canNai);
   setButtonState(btnComfy, canComfy);
 }
 

@@ -23,7 +23,6 @@ export async function initComfyViewer(options = {}) {
   const RES_PAGE_SIZE = 200;
   let resItemsCache = [];
 
-  const fileInput = document.getElementById('file-input');
   const metaInfo = document.getElementById('meta-info');
   const nodeList = document.getElementById('node-list');
   const detailPanel = document.getElementById('detail-panel');
@@ -339,17 +338,9 @@ export async function initComfyViewer(options = {}) {
     resModal.style.display = 'none';
   }
 
-  fileInput.addEventListener('change', async (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
-    const raw = JSON.parse(await f.text());
-    graph = normalizeGraph(raw, workflowSchema);
-    buildEdges();
-    metaInfo.innerText = `${Object.keys(graph.nodes).length} Nodes`;
-    selectedNodeId = null;
-    setEmptyDetail();
-    renderList();
-  });
+  function updateEmptyMeta() {
+    metaInfo.innerText = '공통 UI에서 이동해 주세요.';
+  }
 
   document.querySelectorAll('.tab-btn').forEach((el) => {
     el.addEventListener('click', () => {
@@ -387,5 +378,7 @@ export async function initComfyViewer(options = {}) {
   resModal.addEventListener('click', closeResourceModal);
 
   setEmptyDetail();
-  tryLoadFromSession();
+  if (!tryLoadFromSession()) {
+    updateEmptyMeta();
+  }
 }
