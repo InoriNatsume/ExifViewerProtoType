@@ -1,12 +1,15 @@
-export function detectModelFromMeta(meta) {
+export function detectModelFromMeta(meta, stealthExif = null) {
   if (!meta) return { kind: 'unknown', reason: 'no-meta' };
   const { standardExif, pngText } = meta;
 
   const comfy = detectComfyFromPngText(pngText);
   if (comfy.matched) return { kind: 'comfy', reason: comfy.reason };
 
-  const nai = detectNovelAiFromStandardExif(standardExif);
-  if (nai.matched) return { kind: 'nai', reason: nai.reason };
+  const naiStealth = detectNovelAiFromExif(stealthExif);
+  if (naiStealth.matched) return { kind: 'nai', reason: `stealth:${naiStealth.reason}` };
+
+  const naiStandard = detectNovelAiFromExif(standardExif);
+  if (naiStandard.matched) return { kind: 'nai', reason: naiStandard.reason };
 
   return { kind: 'unknown', reason: 'no-signature' };
 }
@@ -33,14 +36,30 @@ export function detectComfyFromPngText(pngText) {
   return { matched: false, reason: 'no-comfy-signature' };
 }
 
-export function detectNovelAiFromStandardExif(standardExif) {
-  if (!standardExif || typeof standardExif !== 'object') {
+export function detectNovelAiFromExif(exif) {
+  if (!exif || typeof exif !== 'object') {
     return { matched: false, reason: 'no-standard-exif' };
   }
-  const software = standardExif.Software || standardExif.software || '';
-  const source = standardExif.Source || standardExif.source || '';
+  const software = exif.Software || exif.software || '';
+  const source = exif.Source || exif.source || '';
   const isNAI = /novelai/i.test(software) || /novelai/i.test(source);
-  return { matched: isNAI, reason: isNAI ? 'novelai-tag' : 'no-novelai-tag' };
+  if (isNAI) return { matched: true, reason: 'novelai-tag' };
+
+  const hasPrompt = typeof exif.prompt === 'string' || !!exif.v4_prompt;
+  const hasNAIKeys =
+    hasPrompt &&
+    (exif.steps !== undefined ||
+      exif.sampler !== undefined ||
+      exif.noise_schedule !== undefined ||
+      exif.width !== undefined ||
+      exif.height !== undefined);
+  if (hasNAIKeys) return { matched: true, reason: 'novelai-keys' };
+
+  return { matched: false, reason: 'no-novelai-tag' };
+}
+
+export function detectNovelAiFromStandardExif(standardExif) {
+  return detectNovelAiFromExif(standardExif);
 }
 
 export function tryJsonLoadsMaybeNested(value) {

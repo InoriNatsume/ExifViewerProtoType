@@ -25,6 +25,10 @@
     .viewer-toggle { display: flex; gap: 8px; margin-top: 10px; }
     .viewer-btn { padding: 8px 12px; border: 1px solid #cdd4e0; background: #fff; border-radius: 8px; cursor: pointer; font-weight: 600; }
     .viewer-btn.disabled { opacity: 0.5; cursor: not-allowed; }
+    .src-toggle { display: flex; gap: 8px; margin-top: 8px; }
+    .src-btn { padding: 8px 12px; border: 1px solid #cdd4e0; background: #fff; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .src-btn.active { background: #304ffe; color: #fff; border-color: #304ffe; }
+    .src-btn.disabled { opacity: 0.5; cursor: not-allowed; }
     .panel { background: #fff; border: 1px solid #dce2ed; border-radius: 12px; padding: 14px; }
     .panel h3 { margin: 6px 0 10px; font-size: 1rem; }
     .tabs { display: flex; gap: 8px; margin-top: 20px; }
@@ -105,6 +109,10 @@
         </div>
         <div class="viewer-toggle">
           <button id="btn-open-comfy" class="viewer-btn disabled" disabled>ComfyUI 보기</button>
+        </div>
+        <div class="src-toggle">
+          <button id="src-stealth" class="src-btn">스텔스 보기</button>
+          <button id="src-standard" class="src-btn">표준 보기</button>
         </div>
         <div class="actions">
           <button id="btn-save-json" class="primary">JSON 저장</button>

@@ -23,6 +23,8 @@ export function initViewer() {
   const btnOpenComfy = document.getElementById('btn-open-comfy');
   const miniSampleEl = document.getElementById('mini-sample');
   const miniSizeEl = document.getElementById('mini-size');
+  const srcStdBtn = document.getElementById('src-standard');
+  const srcStealthBtn = document.getElementById('src-stealth');
 
   let lastMeta = null;
   let lastModel = null;
@@ -33,6 +35,7 @@ export function initViewer() {
     merged: null,
   };
   let currentTab = 'normalized';
+  let currentSource = 'standard';
 
   tabs.forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -45,8 +48,61 @@ export function initViewer() {
     });
   });
 
+  function getSourceObj() {
+    return currentSource === 'stealth' ? currentData.stealthObj : currentData.standardObj;
+  }
+
+  function markSourceButtons() {
+    if (!srcStdBtn || !srcStealthBtn) return;
+    srcStdBtn.classList.toggle('active', currentSource === 'standard');
+    srcStealthBtn.classList.toggle('active', currentSource === 'stealth');
+  }
+
+  function updateSourceButtonsAvailability() {
+    const hasStd = !!currentData.standardObj;
+    const hasStealth = !!currentData.stealthObj;
+    setButtonState(srcStdBtn, hasStd);
+    setButtonState(srcStealthBtn, hasStealth);
+    if (currentSource === 'standard' && !hasStd && hasStealth) currentSource = 'stealth';
+    if (currentSource === 'stealth' && !hasStealth && hasStd) currentSource = 'standard';
+  }
+
+  function renderAll() {
+    const sourceObj = getSourceObj();
+    const merged = sourceObj
+      ? pickMergedMeta(sourceObj, currentSource === 'stealth' ? JSON.stringify(sourceObj) : null)
+      : null;
+    const normalized = merged ? normalizeMetadata(merged) : { vendor: 'unknown', normalized: null };
+    currentData.normalized = normalized;
+    currentData.merged = merged;
+
+    renderSections(sectionsEl, normalized.normalized);
+    renderMiniMeta(normalized.normalized, miniSampleEl, miniSizeEl);
+    renderKeyExplorer(keyExplorerEl, sourceObj);
+
+    if (sourceObj) {
+      const displayObj = normalizeRawForDisplay(sourceObj);
+      rawSelectedEl.textContent = prettyJson(displayObj);
+    } else {
+      rawSelectedEl.textContent = 'EXIF 없음';
+    }
+  }
+
+  srcStdBtn?.addEventListener('click', () => {
+    if (!currentData.standardObj) return;
+    currentSource = 'standard';
+    renderAll();
+    markSourceButtons();
+  });
+  srcStealthBtn?.addEventListener('click', () => {
+    if (!currentData.stealthObj) return;
+    currentSource = 'stealth';
+    renderAll();
+    markSourceButtons();
+  });
+
   btnSave.addEventListener('click', () => {
-    const sourceObj = currentData.standardObj || currentData.stealthObj;
+    const sourceObj = getSourceObj();
     if (currentTab === 'normalized' && currentData.normalized) {
       saveJson('normalized.json', currentData.normalized);
     } else if (currentTab === 'raw' && sourceObj) {
@@ -88,6 +144,9 @@ export function initViewer() {
     await handleFile(file);
   });
 
+  updateSourceButtonsAvailability();
+  markSourceButtons();
+
   async function handleFile(file) {
     const url = URL.createObjectURL(file);
     preview.src = url;
@@ -103,28 +162,18 @@ export function initViewer() {
     const stealthStr = await parseStealthExif(meta.imageData);
     const stealthObj = stealthStr ? tryParseJson(stealthStr) : null;
 
-    const modelResult = detectModelFromMeta(meta);
+    const modelResult = detectModelFromMeta(meta, stealthObj);
     lastModel = modelResult;
     renderModelBadge(badgeModel, modelResult);
     updateViewerButtons(btnOpenComfy, modelResult);
 
     currentData.standardObj = meta.standardExif;
     currentData.stealthObj = stealthObj;
-    const merged = pickMergedMeta(meta.standardExif, stealthObj ? JSON.stringify(stealthObj) : null);
-    const normalized = merged ? normalizeMetadata(merged) : { vendor: 'unknown', normalized: null };
-    currentData.normalized = normalized;
-    currentData.merged = merged;
-
-    renderSections(sectionsEl, normalized.normalized);
-    renderMiniMeta(normalized.normalized, miniSampleEl, miniSizeEl);
-    renderKeyExplorer(keyExplorerEl, meta.standardExif || stealthObj);
-
-    if (meta.standardExif || stealthObj) {
-      const displayObj = normalizeRawForDisplay(meta.standardExif || stealthObj);
-      rawSelectedEl.textContent = prettyJson(displayObj);
-    } else {
-      rawSelectedEl.textContent = 'EXIF 없음';
-    }
+    if (stealthObj) currentSource = 'stealth';
+    else if (meta.standardExif) currentSource = 'standard';
+    updateSourceButtonsAvailability();
+    markSourceButtons();
+    renderAll();
   }
 }
 
