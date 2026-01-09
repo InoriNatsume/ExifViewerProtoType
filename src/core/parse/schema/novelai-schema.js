@@ -1,5 +1,6 @@
-﻿// NovelAI ?꾩슜 ?ㅽ궎留??뺢퇋??// ?낅젰: raw JSON 媛앹껜
-// 異쒕젰: NormalizedMeta | null
+﻿// NovelAI 전용 스키마 정규화
+// 입력: raw JSON 객체
+// 출력: NormalizedMeta | null
 
 export function parseNovelAI(raw) {
   if (!raw || typeof raw !== 'object') return null;

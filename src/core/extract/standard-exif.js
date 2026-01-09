@@ -1,10 +1,10 @@
-﻿// ?쒖? EXIF 異붿텧 濡쒖쭅 (exifr ?ъ슜). 釉뚮씪?곗? ?섍꼍?먯꽌 import ???ъ슜.
-// ?낅젰: Blob/File
-// 異쒕젰: Promise<object|null>
+﻿// 표준 EXIF 추출 로직 (exifr 사용). 브라우저 환경에서 import 없이 사용.
+// 입력: Blob/File
+// 출력: Promise<object|null>
 export async function parseStandardExif(file) {
   if (!file) return null;
   if (typeof exifr === 'undefined' || !exifr.parse) {
-    console.warn('exifr媛 濡쒕뱶?섏? ?딆븯?듬땲?? CDN ?ㅽ겕由쏀듃 ?뺤씤 ?꾩슂.');
+    console.warn('exif가 로드되지 않았습니다. CDN 스크립트 확인 필요.');
     return null;
   }
   try {
@@ -14,7 +14,8 @@ export async function parseStandardExif(file) {
     }
     return null;
   } catch (err) {
-    console.error('?쒖? EXIF ?뚯떛 ?ㅻ쪟', err);
+    console.error('표준 EXIF 파싱 오류', err);
     return null;
   }
 }
+

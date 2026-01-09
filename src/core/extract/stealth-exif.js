@@ -1,6 +1,6 @@
-﻿// ?ㅽ뀛??EXIF 異붿텧 濡쒖쭅???쒖닔 ?⑥닔濡?遺꾨━.
-// ?낅젰: ImageData (canvas.getImageData)
-// 異쒕젰: Promise<string|null> - ?ㅽ뀛?ㅼ뿉 ?닿릿 臾몄옄??JSON 湲곕?)
+﻿// 스텔스 EXIF 추출 로직을 순수 함수로 분리.
+// 입력: ImageData (canvas.getImageData)
+// 출력: Promise<string|null> - 스텔스에 담긴 문자열(JSON 기반)
 
 const SIG_ALPHA = 'stealth_pnginfo';
 const SIG_ALPHA_COMP = 'stealth_pngcomp';
@@ -128,14 +128,14 @@ export function decodeStealthPayload(bitsResult) {
     }
     if (compressed) {
       if (typeof pako === 'undefined') {
-        console.warn('pako媛 濡쒕뱶?섏? ?딆븘 gzip ?댁젣媛 遺덇??⑸땲??');
+        console.warn('pako가 로드되지 않아 gzip 해제가 불가능합니다.');
         return null;
       }
       return pako.inflate(byteArray, { to: 'string' });
     }
     return new TextDecoder('utf-8').decode(byteArray);
   } catch (e) {
-    console.error('?ㅽ뀛??payload ?붿퐫???ㅽ뙣', e);
+    console.error('스텔스 payload 디코딩 실패', e);
     return null;
   }
 }
@@ -155,3 +155,5 @@ function binToUtf8(binStr) {
     .decode(new Uint8Array(bytes))
     .replace(/\0/g, '');
 }
+
+
