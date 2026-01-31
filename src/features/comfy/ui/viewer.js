@@ -1,6 +1,6 @@
 import { DEFAULT_SCHEMA_URL, loadWorkflowSchema } from '../core/schema.js';
 import { normalizeGraph } from '../core/normalize.js';
-import { getCategories, getNodeIO, getNodeType, getPrimaryCategory, getPreview } from '../core/categories.js';
+import { getCategories, getNodeIO, getNodeType, getPrimaryCategory, getPreview, getInputValues } from '../core/categories.js';
 import { collectResources, formatExtBadge } from '../core/resources.js';
 
 export async function initComfyViewer(options = {}) {
@@ -44,9 +44,22 @@ export async function initComfyViewer(options = {}) {
     sessionStorage.removeItem('comfyPayload');
     try {
       const payload = JSON.parse(raw);
-      const data = payload.workflow || payload.prompt || payload.raw;
+      
+      // prompt 우선 사용 (내부 노드가 있음), workflow는 UI 메타용
+      const promptData = payload.prompt;
+      const workflowData = payload.workflow;
+      
+      // prompt가 있으면 prompt 기반, 없으면 workflow 또는 raw
+      const data = promptData || workflowData || payload.raw;
       if (!data) return false;
+      
       graph = normalizeGraph(data, workflowSchema);
+      
+      // workflow가 있으면 UI 메타 병합 (subgraph 컨테이너 정보 등)
+      if (workflowData && Array.isArray(workflowData.nodes)) {
+        mergeWorkflowMeta(graph, workflowData);
+      }
+      
       buildEdges();
       metaInfo.innerText = `${Object.keys(graph.nodes).length} Nodes`;
       selectedNodeId = null;
@@ -56,6 +69,48 @@ export async function initComfyViewer(options = {}) {
     } catch (_) {
       return false;
     }
+  }
+
+  // workflow에서 UI 메타정보(위치, 크기, 타이틀, I/O 타입 등)를 graph에 병합
+  function mergeWorkflowMeta(graph, workflow) {
+    if (!workflow.nodes) return;
+    workflow.nodes.forEach((wn) => {
+      const id = String(wn.id);
+      const node = graph.nodes[id];
+      if (node) {
+        // 기존 노드에 UI 메타 추가
+        node.ui = node.ui || {};
+        node.ui.pos = wn.pos;
+        node.ui.size = wn.size;
+        node.ui.properties = wn.properties;
+        node.ui.widgets_values = wn.widgets_values;
+        // I/O 타입 정보 추가 (workflow에만 있음)
+        node.ui.inputs = wn.inputs;
+        node.ui.outputs = wn.outputs;
+        if (wn.title) {
+          node._meta = node._meta || {};
+          node._meta.title = wn.title;
+        }
+      } else if (node === undefined && wn.type) {
+        // prompt에 없는 노드 (예: subgraph 컨테이너)를 workflow에서 추가
+        graph.nodes[id] = {
+          id,
+          type: { workflow: wn.type },
+          class_type: wn.type,
+          _meta: { title: wn.title || wn.type },
+          _fromWorkflow: true,
+          ui: {
+            pos: wn.pos,
+            size: wn.size,
+            properties: wn.properties,
+            widgets_values: wn.widgets_values,
+            inputs: wn.inputs,
+            outputs: wn.outputs,
+          },
+          inputs: {},
+        };
+      }
+    });
   }
 
   function buildEdges() {
@@ -199,7 +254,10 @@ export async function initComfyViewer(options = {}) {
     const ioTypesHtml = renderIOTypes(io.inputs, io.outputs);
 
     let widgetsHtml = '';
+    const inputVals = getInputValues(n);
+    
     if (n.ui?.widgets_values?.length) {
+      // workflow 형식: widgets_values 배열
       widgetsHtml = n.ui.widgets_values.map((w, i) => {
         if (typeof w === 'string' && w.length > 50) {
           return `<div>
@@ -210,6 +268,27 @@ export async function initComfyViewer(options = {}) {
         return `<div class="widget-row">
           <span class="w-label">WIDGET ${i}</span>
           <span class="w-value">${w}</span>
+        </div>`;
+      }).join('');
+    } else if (inputVals.length > 0) {
+      // prompt dict 형식: inputs 객체에서 값 추출
+      widgetsHtml = inputVals.map((iv) => {
+        const valStr = typeof iv.value === 'object' ? JSON.stringify(iv.value, null, 2) : String(iv.value);
+        if (typeof iv.value === 'string' && iv.value.length > 50) {
+          return `<div>
+            <div class="w-label" style="margin-top:8px">${iv.key}</div>
+            <textarea class="w-long-text" readonly>${iv.value}</textarea>
+          </div>`;
+        }
+        if (typeof iv.value === 'object') {
+          return `<div>
+            <div class="w-label" style="margin-top:8px">${iv.key}</div>
+            <pre class="w-long-text" style="white-space:pre-wrap;font-size:11px;">${valStr}</pre>
+          </div>`;
+        }
+        return `<div class="widget-row">
+          <span class="w-label">${iv.key}</span>
+          <span class="w-value">${valStr}</span>
         </div>`;
       }).join('');
     } else {

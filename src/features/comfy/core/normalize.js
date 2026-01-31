@@ -7,11 +7,59 @@ export function normalizeGraph(raw, schema) {
 
   if (isPromptDict(raw)) {
     const nodesById = {};
+    const edges = [];
+    const subgraphContainers = new Set();
+
+    // 1단계: 노드 수집 + subgraph 컨테이너 ID 추출
     Object.entries(raw).forEach(([id, n]) => {
       const type = n.type || { workflow: n.class_type || n.ui_type };
       nodesById[String(id)] = { ...n, id: String(id), type };
+
+      // "344:339" 패턴에서 컨테이너 ID "344" 추출
+      if (id.includes(':')) {
+        const containerId = id.split(':')[0];
+        subgraphContainers.add(containerId);
+      }
     });
-    return { nodes: nodesById, edges: [] };
+
+    // 2단계: inputs에서 edges 추출
+    Object.entries(raw).forEach(([id, n]) => {
+      if (!n.inputs) return;
+      Object.entries(n.inputs).forEach(([inputName, value]) => {
+        // [srcId, srcSlot] 형태의 링크인지 확인
+        if (Array.isArray(value) && value.length >= 2 && 
+            (typeof value[0] === 'string' || typeof value[0] === 'number')) {
+          const srcId = String(value[0]);
+          const srcSlot = value[1];
+          edges.push({
+            src_id: srcId,
+            src_slot: srcSlot,
+            dst_id: String(id),
+            dst_input: inputName,
+            via: 'prompt',
+          });
+        }
+      });
+    });
+
+    // 3단계: 가상 subgraph 컨테이너 노드 생성
+    subgraphContainers.forEach((containerId) => {
+      if (!nodesById[containerId]) {
+        // 컨테이너에 속한 내부 노드들 수집
+        const childIds = Object.keys(nodesById).filter((id) => id.startsWith(containerId + ':'));
+        nodesById[containerId] = {
+          id: containerId,
+          type: { workflow: 'Subgraph' },
+          _isVirtualContainer: true,
+          _childNodeIds: childIds,
+          inputs: {},
+          class_type: 'Subgraph',
+          _meta: { title: `Subgraph ${containerId}` },
+        };
+      }
+    });
+
+    return { nodes: nodesById, edges };
   }
 
   const isOfficial = matchesOfficialSchema(raw, schema) || Array.isArray(raw.nodes);
